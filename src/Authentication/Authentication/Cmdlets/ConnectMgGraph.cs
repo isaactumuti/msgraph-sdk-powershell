@@ -1,31 +1,30 @@
 ﻿// ------------------------------------------------------------------------------
 //  Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the MIT License.  See License in the project root for license information.
 // ------------------------------------------------------------------------------
+using Microsoft.Graph.Authentication.Core;
+ using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Management.Automation;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Net;
+using System.Globalization;
+using System.Collections;
+using System.Security.Cryptography.X509Certificates;
+
+using Microsoft.Graph.PowerShell.Authentication.Helpers;
+using Microsoft.Graph.PowerShell.Authentication.Models;
+
+using Microsoft.Graph.PowerShell.Authentication.Interfaces;
+using Microsoft.Graph.PowerShell.Authentication.Common;
+
+using static Microsoft.Graph.PowerShell.Authentication.Helpers.AsyncHelpers;
+using System.IO;
+using System.Reflection;
 namespace Microsoft.Graph.PowerShell.Authentication.Cmdlets
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Management.Automation;
-    using System.Net.Http;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using System.Net;
-    using System.Globalization;
-    using System.Collections;
-    using System.Security.Cryptography.X509Certificates;
-
-    using Identity.Client;
-
-    using Microsoft.Graph.Auth;
-    using Microsoft.Graph.PowerShell.Authentication.Helpers;
-    using Microsoft.Graph.PowerShell.Authentication.Models;
-
-    using Interfaces;
-    using Common;
-
-    using static Helpers.AsyncHelpers;
-
     [Cmdlet(VerbsCommunications.Connect, "MgGraph", DefaultParameterSetName = Constants.UserParameterSet)]
     [Alias("Connect-Graph")]
     public class ConnectMgGraph : PSCmdlet, IModuleAssemblyInitializer, IModuleAssemblyCleanup
@@ -94,24 +93,24 @@ namespace Microsoft.Graph.PowerShell.Authentication.Cmdlets
 
         private IGraphEnvironment environment;
 
-        protected override void BeginProcessing()
-        {
-            base.BeginProcessing();
-            ValidateParameters();
+        // protected override void BeginProcessing()
+        // {
+        //     base.BeginProcessing();
+        //     ValidateParameters();
 
-            if (MyInvocation.BoundParameters.ContainsKey(nameof(Environment)))
-            {
-                GraphSettings settings = this.GetContextSettings();
-                if (!settings.TryGetEnvironment(Environment, out environment))
-                {
-                    throw new PSInvalidOperationException(string.Format(ErrorConstants.Message.InvalidEnvironment, Environment));
-                }
-            }
-            else
-            {
-                environment = GraphEnvironment.BuiltInEnvironments[GraphEnvironmentConstants.EnvironmentName.Global];
-            }
-        }
+        //     if (MyInvocation.BoundParameters.ContainsKey(nameof(Environment)))
+        //     {
+        //         GraphSettings settings = this.GetContextSettings();
+        //         if (!settings.TryGetEnvironment(Environment, out environment))
+        //         {
+        //             throw new PSInvalidOperationException(string.Format(ErrorConstants.Message.InvalidEnvironment, Environment));
+        //         }
+        //     }
+        //     else
+        //     {
+        //         environment = GraphEnvironment.BuiltInEnvironments[GraphEnvironmentConstants.EnvironmentName.Global];
+        //     }
+        // }
 
         protected override void EndProcessing()
         {
@@ -201,67 +200,8 @@ namespace Microsoft.Graph.PowerShell.Authentication.Cmdlets
 
                 try
                 {
-                    // Gets a static instance of IAuthenticationProvider when the client app hasn't changed.
-                    IAuthenticationProvider authProvider = AuthenticationHelpers.GetAuthProvider(authContext);
-                    IClientApplicationBase clientApplication = null;
-                    if (ParameterSetName == Constants.UserParameterSet)
-                    {
-                        clientApplication = (authProvider as DeviceCodeProvider).ClientApplication;
-                    }
-                    else if (ParameterSetName == Constants.AppParameterSet)
-                    {
-                        clientApplication = (authProvider as ClientCredentialProvider).ClientApplication;
-                    }
-
-                    // Incremental scope consent without re-instantiating the auth provider. We will use a static instance.
-                    GraphRequestContext graphRequestContext = new GraphRequestContext();
-                    graphRequestContext.CancellationToken = _cancellationTokenSource.Token;
-                    graphRequestContext.MiddlewareOptions = new Dictionary<string, IMiddlewareOption>
-                {
-                    {
-                        typeof(AuthenticationHandlerOption).ToString(),
-                        new AuthenticationHandlerOption
-                        {
-                            AuthenticationProviderOption = new AuthenticationProviderOption
-                            {
-                                Scopes = authContext.Scopes,
-                                ForceRefresh = ForceRefresh
-                            }
-                        }
-                    }
-                };
-
-                    // Trigger consent.
-                    HttpRequestMessage httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://graph.microsoft.com/v1.0/me");
-                    httpRequestMessage.Properties.Add(typeof(GraphRequestContext).ToString(), graphRequestContext);
-                    await authProvider.AuthenticateRequestAsync(httpRequestMessage);
-
-                    IAccount account = null;
-                    if (clientApplication != null)
-                    {
-                        // Only get accounts when we are using MSAL to get an access token.
-                        IEnumerable<IAccount> accounts = clientApplication.GetAccountsAsync().GetAwaiter().GetResult();
-                        account = accounts.FirstOrDefault();
-                    }
-                    DecodeJWT(httpRequestMessage.Headers.Authorization?.Parameter, account, ref authContext);
-
                     // Save auth context to session state.
-                    GraphSession.Instance.AuthContext = authContext;
-                }
-                catch (AuthenticationException authEx)
-                {
-                    if ((authEx.InnerException is TaskCanceledException) && _cancellationTokenSource.Token.IsCancellationRequested)
-                    {
-                        // DeviceCodeTimeout
-                        throw new Exception(string.Format(
-                                CultureInfo.CurrentCulture,
-                                ErrorConstants.Message.DeviceCodeTimeout,
-                                Constants.MaxDeviceCodeTimeOut));
-                    }
-                    else
-                    {
-                        throw authEx.InnerException ?? authEx;
-                    }
+                    GraphSession.Instance.AuthContext = await Authenticator.AuthenticateAsync(authContext, ForceRefresh, _cancellationTokenSource.Token);
                 }
                 catch (Exception ex)
                 {
@@ -348,40 +288,14 @@ namespace Microsoft.Graph.PowerShell.Authentication.Cmdlets
             }
         }
 
-        private void DecodeJWT(string token, IAccount account, ref IAuthContext authContext)
-        {
-            JwtPayload jwtPayload = JwtHelpers.DecodeToObject<JwtPayload>(token);
-            if (authContext.AuthType == AuthenticationType.UserProvidedAccessToken)
-            {
-                if (jwtPayload == null)
-                {
-                    throw new Exception(string.Format(
-                            CultureInfo.CurrentCulture,
-                            ErrorConstants.Message.InvalidUserProvidedToken,
-                            nameof(AccessToken)));
-                }
-
-                if (jwtPayload.Exp <= JwtHelpers.ConvertToUnixTimestamp(DateTime.UtcNow + TimeSpan.FromMinutes(Constants.TokenExpirationBufferInMinutes)))
-                {
-                    throw new Exception(string.Format(
-                            CultureInfo.CurrentCulture,
-                            ErrorConstants.Message.ExpiredUserProvidedToken,
-                            nameof(AccessToken)));
-                }
-            }
-
-            authContext.ClientId = jwtPayload?.Appid ?? authContext.ClientId;
-            authContext.Scopes = jwtPayload?.Scp?.Split(' ') ?? jwtPayload?.Roles;
-            authContext.TenantId = jwtPayload?.Tid ?? account?.HomeAccountId?.TenantId;
-            authContext.AppName = jwtPayload?.AppDisplayname;
-            authContext.Account = jwtPayload?.Upn ?? account?.Username;
-        }
 
         /// <summary>
         /// Globally initializes GraphSession.
         /// </summary>
         public void OnImport()
         {
+            Console.WriteLine($"On Import");
+            Utilities.DependencyAssemblyResolver.Initialize();
             GraphSessionInitializer.InitializeSession();
             GraphSession.Instance.DataStore = new DiskDataStore();
         }
@@ -393,6 +307,63 @@ namespace Microsoft.Graph.PowerShell.Authentication.Cmdlets
         public void OnRemove(PSModuleInfo psModuleInfo)
         {
             GraphSession.Reset();
+        }
+    }
+
+    // This class controls our dependency resolution
+    public class ModuleContextHandler : IModuleAssemblyInitializer, IModuleAssemblyCleanup
+    {
+        // We catalog our dependencies here to ensure we don't load anything else
+        private static IReadOnlyDictionary<string, int> s_dependencies = new Dictionary<string, int>
+        {
+            { "Microsoft.Identity.Client", 4 },
+        };
+
+        // Set up the path to our dependency directory within the module
+        private static string s_dependenciesDirPath = Path.GetFullPath(
+            Path.Combine(
+                Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+                "Dependencies"));
+
+        // This makes sure we only try to resolve dependencies when the module is loaded
+        private static bool s_engineLoaded = false;
+
+        public void OnImport()
+        {
+            Console.WriteLine($"On Import");
+            // Set up our event when the module is loaded
+            AppDomain.CurrentDomain.AssemblyResolve += HandleResolveEvent;
+        }
+
+        public void OnRemove(PSModuleInfo psModuleInfo)
+        {
+            Console.WriteLine($"On Remove");
+            // Unset the event when the module is unloaded
+            AppDomain.CurrentDomain.AssemblyResolve -= HandleResolveEvent;
+        }
+
+        private static Assembly HandleResolveEvent(object sender, ResolveEventArgs args)
+        {
+            var asmName = new AssemblyName(args.Name);
+            Console.WriteLine($"Loading: {asmName.Name}");
+            // First we want to know if this is the top-level assembly
+            if (asmName.Name.Equals("Microsoft.Graph.Authentication.Core"))
+            {
+                s_engineLoaded = true;
+                return Assembly.LoadFile(Path.Combine(s_dependenciesDirPath, "Microsoft.Graph.Authentication.Core.dll"));
+            }
+
+            // Otherwise, if that assembly has been loaded, we must try to resolve its dependencies too
+            if (s_engineLoaded
+                && s_dependencies.TryGetValue(asmName.Name, out int requiredMajorVersion)
+                && asmName.Version.Major == requiredMajorVersion)
+            {
+                string asmPath = Path.Combine(s_dependenciesDirPath, $"{asmName.Name}.dll");
+                Console.WriteLine($"Loading for engine assembly: {asmName.Name}");
+                return Assembly.LoadFile(asmPath);
+            }
+
+            return null;
         }
     }
 }

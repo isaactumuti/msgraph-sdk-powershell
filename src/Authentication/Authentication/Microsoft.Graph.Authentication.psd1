@@ -9,7 +9,7 @@
 @{
 
 # Script module or binary module file associated with this manifest.
-RootModule = './Microsoft.Graph.Authentication.psm1'
+RootModule = 'Microsoft.Graph.Authentication.dll'
 
 # Version number of this module.
 ModuleVersion = '1.3.2'
@@ -54,7 +54,7 @@ DotNetFrameworkVersion = '4.7.2'
 # RequiredModules = @()
 
 # Assemblies that must be loaded prior to importing this module
-# RequiredAssemblies = @()
+RequiredAssemblies = @('Microsoft.Graph.Authentication.dll')
 
 # Script files (.ps1) that are run in the caller's environment prior to importing this module.
 # ScriptsToProcess = @()
@@ -63,7 +63,7 @@ DotNetFrameworkVersion = '4.7.2'
 # TypesToProcess = @()
 
 # Format files (.ps1xml) to be loaded when importing this module
-FormatsToProcess = './Microsoft.Graph.Authentication.format.ps1xml'
+# FormatsToProcess = './Microsoft.Graph.Authentication.format.ps1xml'
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 # NestedModules = @()

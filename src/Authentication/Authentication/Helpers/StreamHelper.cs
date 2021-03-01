@@ -79,13 +79,13 @@ namespace Microsoft.Graph.PowerShell.Authentication.Helpers
         }
 
         internal static void SaveStreamToFile(this Stream baseResponseStream, string filePath,
-            InvokeMgGraphRequest invokeGraphRequest, CancellationToken token)
+            PSCmdlet cmdlet, CancellationToken token)
         {
             // If the web cmdlet should resume, append the file instead of overwriting.
             const FileMode fileMode = FileMode.Create;
             using (var output = new FileStream(filePath, fileMode, FileAccess.Write, FileShare.Read))
             {
-                baseResponseStream.WriteToStream(output, invokeGraphRequest, token);
+                baseResponseStream.WriteToStream(output, cmdlet, token);
             }
         }
 

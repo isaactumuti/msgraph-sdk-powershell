@@ -9,7 +9,7 @@ namespace Microsoft.Graph.PowerShell.Authentication.Models
     using System.Collections.Concurrent;
     using System.Collections.Generic;
 
-    internal class GraphEnvironment : IGraphEnvironment
+    public class GraphEnvironment : IGraphEnvironment
     {
         /// <summary>
         /// Predefined Microsoft Graph environments
